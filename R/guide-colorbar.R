@@ -307,17 +307,20 @@ GuideColourbar <- ggproto(
     ticks_length = unit(0.2, "npc"),
     background  = "legend.background",
     margin      = "legend.margin",
-    spacing     = "legend.spacing",
-    spacing.x   = "legend.spacing.x",
-    spacing.y   = "legend.spacing.y",
     key         = "legend.key",
     key.height  = "legend.key.height",
     key.width   = "legend.key.width",
     text        = "legend.text",
-    text.align  = "legend.text.align",
-    theme.title = "legend.title",
-    title.align = "legend.title.align"
+    theme.title = "legend.title"
   ),
+
+  extract_key = function(scale, aesthetic, ...) {
+    if (scale$is_discrete()) {
+      cli::cli_warn("{.fn guide_colourbar} needs continuous scales.")
+      return(NULL)
+    }
+    Guide$extract_key(scale, aesthetic, ...)
+  },
 
   extract_decor = function(scale, aesthetic, nbin = 300, reverse = FALSE, ...) {
 
@@ -337,13 +340,34 @@ GuideColourbar <- ggproto(
     return(bar)
   },
 
-  extract_params = function(scale, params, hashables,
-                            title  = waiver(), direction = "vertical", ...) {
+  extract_params = function(scale, params,
+                            title  = waiver(), ...) {
     params$title <- scale$make_title(
       params$title %|W|% scale$name %|W|% title
     )
+
+    limits <- c(params$decor$value[1], params$decor$value[nrow(params$decor)])
+    params$key$.value <- rescale(
+      params$key$.value,
+      c(0.5, params$nbin - 0.5) / params$nbin,
+      limits
+    )
+    params
+  },
+
+  merge = function(self, params, new_guide, new_params) {
+    new_params$key$.label <- new_params$key$.value <- NULL
+    params$key <- vec_cbind(params$key, new_params$key)
+    return(list(guide = self, params = params))
+  },
+
+  get_layer_key = function(params, layers, data = NULL) {
+    params
+  },
+
+  setup_params = function(params) {
     params$direction <- arg_match0(
-      params$direction %||% direction,
+      params$direction,
       c("horizontal", "vertical"), arg_nm = "direction"
     )
     valid_label_pos <- switch(
@@ -359,41 +383,6 @@ GuideColourbar <- ggproto(
         "not {.val {params$label.position}}."
       ))
     }
-
-    limits <- c(params$decor$value[1], params$decor$value[nrow(params$decor)])
-    params$key$.value <- rescale(
-      params$key$.value,
-      c(0.5, params$nbin - 0.5) / params$nbin,
-      limits
-    )
-    Guide$extract_params(scale, params, hashables)
-  },
-
-  merge = function(self, params, new_guide, new_params) {
-    return(list(guide = self, params = params))
-  },
-
-  get_layer_key = function(params, layers) {
-
-    guide_layers <- lapply(layers, function(layer) {
-
-      matched_aes <- matched_aes(layer, params)
-
-      # Check if this layer should be included
-      if (include_layer_in_guide(layer, matched_aes)) {
-        layer
-      } else {
-        NULL
-      }
-    })
-
-    if (length(compact(guide_layers)) == 0) {
-      return(NULL)
-    }
-    return(params)
-  },
-
-  setup_params = function(params) {
     params$title.position <- arg_match0(
       params$title.position %||%
         switch(params$direction, vertical = "top", horizontal = "left"),
@@ -416,17 +405,15 @@ GuideColourbar <- ggproto(
   },
 
   build_labels = function(key, elements, params) {
-    just <- if (params$direction == "horizontal") {
-      elements$text$vjust
-    } else {
-      elements$text$hjust
+    n_labels <- length(key$.label)
+    if (n_labels < 1) {
+      return(list(labels = zeroGrob()))
     }
 
     list(labels = flip_element_grob(
       elements$text,
-      label = key$.label,
+      label = validate_labels(key$.label),
       x = unit(key$.value, "npc"),
-      y = rep(just, nrow(key)),
       margin_x = FALSE,
       margin_y = TRUE,
       flip = params$direction == "vertical"

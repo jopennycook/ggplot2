@@ -266,7 +266,7 @@ GuideBins <- ggproto(
     return(key)
   },
 
-  extract_params = function(scale, params, hashables,
+  extract_params = function(scale, params,
                             title = waiver(), direction = NULL, ...) {
 
     show.limits <- params$show.limits %||% scale$show.limits %||% FALSE
@@ -298,15 +298,15 @@ GuideBins <- ggproto(
     params$title <- scale$make_title(
       params$title %|W|% scale$name %|W|% title
     )
+    params$key <- key
+    params
+  },
+
+  setup_params = function(params) {
     params$direction <- arg_match0(
-      params$direction %||% direction,
+      params$direction,
       c("horizontal", "vertical"), arg_nm = "direction"
     )
-    if (params$direction == "vertical") {
-      key$.value <- 1 - key$.value
-    }
-
-    params$key <- key
     valid_label_pos <- switch(
       params$direction,
       "horizontal" = c("bottom", "top"),
@@ -320,11 +320,6 @@ GuideBins <- ggproto(
         "not {.val {params$label.position}}."
       ))
     }
-
-    Guide$extract_params(scale, params, hashables)
-  },
-
-  setup_params = function(params) {
     params <- GuideLegend$setup_params(params)
     params$byrow <- FALSE
     params$rejust_labels <- FALSE
@@ -340,19 +335,20 @@ GuideBins <- ggproto(
   },
 
   build_labels = function(key, elements, params) {
-    key$.label[c(1, nrow(key))[!params$show.limits]] <- ""
+    n_labels <- length(key$.label)
+    if (n_labels < 1) {
+      return(list(labels = zeroGrob()))
+    }
+    key$.label[c(1, n_labels)[!params$show.limits]] <- ""
 
-    just <- if (params$direction == "horizontal") {
-      elements$text$vjust
-    } else {
-      elements$text$hjust
+    if (params$direction == "vertical") {
+      key$.value <- 1 - key$.value
     }
 
     list(labels = flip_element_grob(
       elements$text,
       label = key$.label,
       x = unit(key$.value, "npc"),
-      y = rep(just, nrow(key)),
       margin_x = FALSE,
       margin_y = TRUE,
       flip = params$direction == "vertical"
@@ -360,6 +356,9 @@ GuideBins <- ggproto(
   },
 
   build_ticks = function(key, elements, params, position = params$position) {
+    if (params$direction == "vertical") {
+      key$.value <- 1 - key$.value
+    }
     key$.value[c(1, nrow(key))[!params$show.limits]] <- NA
     Guide$build_ticks(key$.value, elements, params, params$label.position)
   },

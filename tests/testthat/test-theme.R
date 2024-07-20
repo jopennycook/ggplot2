@@ -170,6 +170,16 @@ test_that("calculating theme element inheritance works", {
   e1 <- ggplot2:::calc_element("strip.text.x", theme)
   e2 <- ggplot2:::calc_element("strip.text", theme)
   expect_identical(e1, e2)
+
+  # Check that rel units are computed appropriately
+  theme <- theme_gray() +
+    theme(axis.ticks.length = unit(1, "cm"),
+          axis.ticks.length.x = rel(0.5),
+          axis.ticks.length.x.bottom = rel(4))
+
+  expect_equal(calc_element("axis.ticks.length.y.left", theme), unit(1, "cm"))
+  expect_equal(calc_element("axis.ticks.length.x.top", theme), unit(1, "cm") * 0.5)
+  expect_equal(calc_element("axis.ticks.length.x.bottom", theme), unit(1, "cm") * 0.5 * 4)
 })
 
 test_that("complete and non-complete themes interact correctly with each other", {
@@ -490,6 +500,74 @@ test_that("Theme elements are checked during build", {
   p <- ggplot(mtcars) + geom_point(aes(disp, mpg)) +
     theme(plot.tag.position = "test") + labs(tag = "test")
   expect_snapshot_error(ggplotGrob(p))
+})
+
+test_that("Theme validation behaves as expected", {
+  tree <- get_element_tree()
+  expect_silent(validate_element(1,  "aspect.ratio", tree))
+  expect_silent(validate_element(1L, "aspect.ratio", tree))
+  expect_snapshot_error(validate_element("A", "aspect.ratio", tree))
+})
+
+test_that("Element subclasses are inherited", {
+
+  # `rich` is subclass of `poor`
+  poor <- element_line(colour = "red", linetype = 3)
+  rich <- element_line(linetype = 2, linewidth = 2)
+  class(rich) <- c("element_rich", class(rich))
+
+  # `poor` should acquire `rich`
+  test <- combine_elements(poor, rich)
+  expect_s3_class(test, "element_rich")
+  expect_equal(
+    test[c("colour", "linetype", "linewidth")],
+    list(colour = "red", linetype = 3, linewidth = 2)
+  )
+
+  # `rich` should stay `rich`
+  test <- combine_elements(rich, poor)
+  expect_s3_class(test, "element_rich")
+  expect_equal(
+    test[c("colour", "linetype", "linewidth")],
+    list(colour = "red", linetype = 2, linewidth = 2)
+  )
+
+  # `sibling` is not strict subclass of `rich`
+  sibling <- poor
+  class(sibling) <- c("element_sibling", class(sibling))
+
+  # `sibling` should stay `sibling`
+  test <- combine_elements(sibling, rich)
+  expect_s3_class(test, "element_sibling")
+  expect_equal(
+    test[c("colour", "linetype", "linewidth")],
+    list(colour = "red", linetype = 3, linewidth = 2)
+  )
+
+  # `rich` should stay `rich`
+  test <- combine_elements(rich, sibling)
+  expect_s3_class(test, "element_rich")
+  expect_equal(
+    test[c("colour", "linetype", "linewidth")],
+    list(colour = "red", linetype = 2, linewidth = 2)
+  )
+})
+
+test_that("Minor tick length supports biparental inheritance", {
+  my_theme <- theme_gray() + theme(
+    axis.ticks.length = unit(1, "cm"),
+    axis.ticks.length.y.left = unit(1, "pt"),
+    axis.minor.ticks.length.y = unit(1, "inch"),
+    axis.minor.ticks.length = rel(0.5)
+  )
+  expect_equal( # Inherits rel(0.5) from minor, 1cm from major
+    calc_element("axis.minor.ticks.length.x.bottom", my_theme),
+    unit(1, "cm") * 0.5
+  )
+  expect_equal( # Inherits 1inch directly from minor
+    calc_element("axis.minor.ticks.length.y.left", my_theme),
+    unit(1, "inch")
+  )
 })
 
 # Visual tests ------------------------------------------------------------
